@@ -21,12 +21,14 @@ main :: proc() {
     for i := 9; i > 0; i -= 1 {
         fmt.printf("%i\n", i)
     }
-    // if only single statement we can write the loop like this
+    // if only single statement we can write the loop using do
     for i := 0; i < 5; i +=1 do fmt.print("😭")
     fmt.println()
 
-    // initial and post loop statements are optional, so we can write
-    // while loop like this
+    /*
+        initial and post loop statements are optional, so we can write
+        while loop like this
+    */
     j := 0
     for j < 10 {
         fmt.println("ni hao 😈")
