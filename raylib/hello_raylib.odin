@@ -1,6 +1,14 @@
+#+feature dynamic-literals 
+// what do ^?
+
 package raylib_game
 
+import "core:encoding/json"
+import "core:fmt"
+import "core:mem"
+import "core:os"
 import rl "vendor:raylib"
+
 
 Animation :: struct {
 	texture:       rl.Texture2D,
@@ -64,7 +72,32 @@ draw_animation :: proc(a: Animation, pos: rl.Vector2, flip: bool) {
 
 PixelWindowHeight :: 180
 
+// might cause memory leak, that's why we used mem track allocator
+Level :: struct {
+	platforms: [dynamic]rl.Vector2,
+}
+
+platform_collider :: proc(pos: rl.Vector2) -> rl.Rectangle {
+	return {pos.x, pos.y, 96, 16}
+}
+
 main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+
+	// gets executed when the procedure ends
+	defer {
+		for _, entry in track.allocation_map {
+			fmt.eprintf("%v leaked %v bytes\n", entry.location, entry.size)
+		}
+
+		for entry in track.bad_free_array {
+			fmt.eprintf("%v bad free\n", entry.location)
+		}
+		mem.tracking_allocator_destroy(&track)
+	}
+
 	rl.InitWindow(1280, 720, "Hello Raylib")
 	rl.SetWindowState({.WINDOW_RESIZABLE})
 	rl.SetTargetFPS(480)
@@ -93,9 +126,19 @@ main :: proc() {
 
 	current_anim := player_idle
 
-	platforms := []rl.Rectangle{{-20, 20, 96, 16}, {90, -10, 96, 16}, {180, -30, 96, 16}}
+	level: Level
+
+	if level_data, success := os.read_entire_file("level.json", context.temp_allocator); success {
+		if json.unmarshal(level_data, &level) != nil {
+			append(&level.platforms, rl.Vector2{-20, 20})
+		}
+	} else {
+		append(&level.platforms, rl.Vector2{-20, 20})
+	}
 
 	platform_texture := rl.LoadTexture("plat.png")
+
+	editing := false
 
 	// main loop
 	for !rl.WindowShouldClose() {
@@ -141,8 +184,9 @@ main :: proc() {
 
 		player_grounded = false
 
-		for platform in platforms {
-			if rl.CheckCollisionRecs(player_feet_collider, platform) && player_velocity.y > 0 {
+		for platform in level.platforms {
+			if rl.CheckCollisionRecs(player_feet_collider, platform_collider(platform)) &&
+			   player_velocity.y > 0 {
 				player_velocity.y = 0
 				player_pos.y = platform.y
 				player_grounded = true
@@ -163,13 +207,50 @@ main :: proc() {
 		rl.BeginMode2D(camera)
 		draw_animation(current_anim, player_pos, player_flip)
 
-		for platform in platforms do rl.DrawTextureV(platform_texture, {platform.x, platform.y}, rl.WHITE)
+		for platform in level.platforms do rl.DrawTextureV(platform_texture, platform, rl.WHITE)
 
 		// rl.DrawRectangleRec(player_feet_collider)
+
+		if rl.IsKeyPressed(.BACKSLASH) {
+			editing = !editing
+		}
+
+		if editing {
+			mouse_pos := rl.GetScreenToWorld2D(rl.GetMousePosition(), camera)
+
+			rl.DrawTextureV(platform_texture, mouse_pos, rl.WHITE)
+
+			if rl.IsMouseButtonPressed(.LEFT) {
+				append(&level.platforms, mouse_pos)
+			}
+
+			if rl.IsMouseButtonPressed(.RIGHT) {
+				for p, index in level.platforms {
+					if rl.CheckCollisionPointRec(mouse_pos, platform_collider(p)) {
+						unordered_remove(&level.platforms, index)
+						break
+					}
+				}
+			}
+		}
+
 		rl.EndMode2D()
 
 		rl.EndDrawing()
+		free_all(context.temp_allocator)
+
 	}
 
 	rl.CloseWindow()
+
+
+	// save the level to json 
+	if level_data, err := json.marshal(level, allocator = context.temp_allocator); err == nil {
+		os.write_entire_file("level.json", level_data)
+	}
+	free_all(context.temp_allocator)
+	// clean up the leaked memory, 
+	// we get these after running program and the mem track allocator returned the log %v leaked %v bytes on line ..
+	delete(level.platforms)
+
 }
