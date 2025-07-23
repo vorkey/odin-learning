@@ -1,5 +1,6 @@
 package breakout
 
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:math/linalg"
@@ -45,14 +46,25 @@ block_color_values := [Block_Color]rl.Color {
 	.Orange = rl.ORANGE,
 }
 
+block_color_score := [Block_Color]int {
+	.Yellow = 2,
+	.Red    = 4,
+	.Orange = 6,
+	.Green  = 8,
+}
+
 paddle_pos_x: f32
 ball_pos: rl.Vector2
 ball_dir: rl.Vector2
-started: bool
 blocks: [NUM_BLOCKS_X][NUM_BLOCKS_Y]bool // 2d bools array
+started: bool
+game_over: bool
+score: int
 
 restart :: proc() {
 	started = false
+	game_over = false
+	score = 0
 	paddle_pos_x = (SCREEN_SIZE - PADDLE_WIDTH) / 2
 	ball_pos = {SCREEN_SIZE / 2, BALL_START_Y}
 
@@ -100,6 +112,10 @@ main :: proc() {
 				ball_dir = linalg.normalize0(ball_to_paddle) // move ball towards paddle
 				started = true
 			}
+		} else if game_over {
+			if rl.IsKeyPressed(.SPACE) {
+				restart()
+			}
 		} else {
 			dt = rl.GetFrameTime()
 		}
@@ -126,8 +142,8 @@ main :: proc() {
 		}
 
 		// fall through bottom
-		if ball_pos.y > SCREEN_SIZE + BALL_RADIUS * 6 {
-			restart()
+		if !game_over && ball_pos.y > SCREEN_SIZE + BALL_RADIUS * 6 {
+			game_over = true
 		}
 
 		if rl.IsKeyDown(.LEFT) {
@@ -172,7 +188,7 @@ main :: proc() {
 			}
 		}
 
-		for x in 0 ..< NUM_BLOCKS_X {
+		block_x_loop: for x in 0 ..< NUM_BLOCKS_X {
 			for y in 0 ..< NUM_BLOCKS_Y {
 				if blocks[x][y] == false {
 					continue
@@ -212,6 +228,9 @@ main :: proc() {
 					}
 
 					blocks[x][y] = false
+					row_color := row_colors[y]
+					score += block_color_score[row_color]
+					break block_x_loop
 				}
 			}
 		}
@@ -257,8 +276,37 @@ main :: proc() {
 			}
 		}
 
+		score_text := fmt.ctprint(score)
+		rl.DrawText(score_text, 5, 5, 10, rl.BLACK)
+
+		if !started {
+			start_text := fmt.ctprint("Start: SPACE")
+			start_text_width := rl.MeasureText(start_text, 15)
+			rl.DrawText(
+				start_text,
+				(SCREEN_SIZE - start_text_width) / 2,
+				BALL_START_Y - 30,
+				15,
+				rl.BLACK,
+			)
+		}
+
+		if game_over {
+			game_over_text := fmt.ctprintf("Score: %v. Reset: SPACE", score)
+			game_over_text_width := rl.MeasureText(game_over_text, 15)
+			rl.DrawText(
+				game_over_text,
+				(SCREEN_SIZE - game_over_text_width) / 2,
+				BALL_START_Y - 30,
+				15,
+				rl.BLACK,
+			)
+		}
+
 		rl.EndMode2D()
 		rl.EndDrawing()
+
+		free_all(context.temp_allocator)
 	}
 
 	rl.CloseWindow()
