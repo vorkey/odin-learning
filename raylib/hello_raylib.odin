@@ -1,6 +1,3 @@
-#+feature dynamic-literals 
-// what do ^?
-
 package raylib_game
 
 import "core:encoding/json"
