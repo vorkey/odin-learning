@@ -61,13 +61,18 @@ blocks: [NUM_BLOCKS_X][NUM_BLOCKS_Y]bool // 2d bools array
 started: bool
 game_over: bool
 score: int
+accumulated_time: f32
+previous_ball_pos: rl.Vector2
+previous_paddle_pos_x: f32
 
 restart :: proc() {
 	started = false
 	game_over = false
 	score = 0
 	paddle_pos_x = (SCREEN_SIZE - PADDLE_WIDTH) / 2
+	previous_paddle_pos_x = paddle_pos_x
 	ball_pos = {SCREEN_SIZE / 2, BALL_START_Y}
+	previous_ball_pos = ball_pos
 
 	for x in 0 ..< NUM_BLOCKS_X {
 		for y in 0 ..< NUM_BLOCKS_Y do blocks[x][y] = true
@@ -94,6 +99,7 @@ main :: proc() {
 	rl.InitAudioDevice()
 	rl.SetTargetFPS(480)
 
+
 	ball_texture := rl.LoadTexture("ball.png")
 	paddle_texture := rl.LoadTexture("paddle.png")
 
@@ -105,13 +111,16 @@ main :: proc() {
 
 	for !rl.WindowShouldClose() {
 		paddle_move_velocity: f32
-		dt: f32
+		DT :: 1.0 / 60.0 // fixed timestep
 
 		if !started {
 			ball_pos = {
 				SCREEN_SIZE / 2 + f32(math.cos(rl.GetTime())) * SCREEN_SIZE / 2.5,
 				BALL_START_Y,
 			}
+
+			previous_ball_pos = ball_pos
+
 			// what the heck this part below probably very important, vector and stuff
 			if rl.IsKeyPressed(.SPACE) {
 				paddle_middle := rl.Vector2{paddle_pos_x + PADDLE_WIDTH / 2, PADDLE_POS_Y}
@@ -126,127 +135,137 @@ main :: proc() {
 				restart()
 			}
 		} else {
-			dt = rl.GetFrameTime()
+			accumulated_time += rl.GetFrameTime()
 		}
 
-		previous_ball_pos := ball_pos
-		ball_pos += ball_dir * BALL_SPEED * dt
 
-		// bounce right wall
-		if ball_pos.x + BALL_RADIUS > SCREEN_SIZE {
-			ball_pos.x = SCREEN_SIZE - BALL_RADIUS
-			ball_dir = reflect(ball_dir, {-1, 0})
-		}
+		for accumulated_time >= DT {
+			previous_ball_pos = ball_pos
+			previous_paddle_pos_x = paddle_pos_x
+			ball_pos += ball_dir * BALL_SPEED * DT
 
-		// bounce left wall
-		if ball_pos.x - BALL_RADIUS < 0 {
-			ball_pos.x = BALL_RADIUS
-			ball_dir = reflect(ball_dir, {1, 0})
-		}
-
-		// bounce top
-		if ball_pos.y - BALL_RADIUS < 0 {
-			ball_pos.y = BALL_RADIUS
-			ball_dir = reflect(ball_dir, {0, 1})
-		}
-
-		// fall through bottom
-		if !game_over && ball_pos.y > SCREEN_SIZE + BALL_RADIUS * 6 {
-			game_over = true
-			rl.PlaySound(game_over_sound)
-		}
-
-		if rl.IsKeyDown(.LEFT) {
-			paddle_move_velocity -= PADDLE_SPEED
-		} else if rl.IsKeyDown(.RIGHT) {
-			paddle_move_velocity += PADDLE_SPEED
-		}
-
-		paddle_pos_x += paddle_move_velocity * dt
-		paddle_pos_x = clamp(paddle_pos_x, 0, SCREEN_SIZE - PADDLE_WIDTH)
-
-		paddle_rect := rl.Rectangle{paddle_pos_x, PADDLE_POS_Y, PADDLE_WIDTH, PADDLE_HEIGHT}
-
-		// ball bouncing with paddle
-		if rl.CheckCollisionCircleRec(ball_pos, BALL_RADIUS, paddle_rect) {
-			collision_normal: rl.Vector2
-
-			// push ball up
-			if previous_ball_pos.y < paddle_rect.y + paddle_rect.height {
-				collision_normal += {0, -1}
-				ball_pos.y = paddle_rect.y - BALL_RADIUS
+			// bounce right wall
+			if ball_pos.x + BALL_RADIUS > SCREEN_SIZE {
+				ball_pos.x = SCREEN_SIZE - BALL_RADIUS
+				ball_dir = reflect(ball_dir, {-1, 0})
 			}
 
-			// push ball down
-			if previous_ball_pos.y > paddle_rect.y + paddle_rect.height {
-				collision_normal += {0, 1}
-				ball_pos.y = paddle_rect.y + paddle_rect.height + BALL_RADIUS
+			// bounce left wall
+			if ball_pos.x - BALL_RADIUS < 0 {
+				ball_pos.x = BALL_RADIUS
+				ball_dir = reflect(ball_dir, {1, 0})
 			}
 
-			// push left
-			if previous_ball_pos.x < paddle_rect.x {
-				collision_normal += {-1, 0}
+			// bounce top
+			if ball_pos.y - BALL_RADIUS < 0 {
+				ball_pos.y = BALL_RADIUS
+				ball_dir = reflect(ball_dir, {0, 1})
 			}
 
-			// push right
-			if previous_ball_pos.x > paddle_rect.x + paddle_rect.width {
-				collision_normal += {1, 0}
+			// fall through bottom
+			if !game_over && ball_pos.y > SCREEN_SIZE + BALL_RADIUS * 6 {
+				game_over = true
+				rl.PlaySound(game_over_sound)
 			}
 
-			if collision_normal != 0 {
-				ball_dir = reflect(ball_dir, collision_normal)
+			if rl.IsKeyDown(.LEFT) {
+				paddle_move_velocity -= PADDLE_SPEED
+			} else if rl.IsKeyDown(.RIGHT) {
+				paddle_move_velocity += PADDLE_SPEED
 			}
-			rl.PlaySound(hit_paddle_sound)
-		}
 
-		block_x_loop: for x in 0 ..< NUM_BLOCKS_X {
-			for y in 0 ..< NUM_BLOCKS_Y {
-				if blocks[x][y] == false {
-					continue
+			paddle_pos_x += paddle_move_velocity * DT
+			paddle_pos_x = clamp(paddle_pos_x, 0, SCREEN_SIZE - PADDLE_WIDTH)
+
+			paddle_rect := rl.Rectangle{paddle_pos_x, PADDLE_POS_Y, PADDLE_WIDTH, PADDLE_HEIGHT}
+
+			// ball bouncing with paddle
+			if rl.CheckCollisionCircleRec(ball_pos, BALL_RADIUS, paddle_rect) {
+				collision_normal: rl.Vector2
+
+				// push ball up
+				if previous_ball_pos.y < paddle_rect.y + paddle_rect.height {
+					collision_normal += {0, -1}
+					ball_pos.y = paddle_rect.y - BALL_RADIUS
 				}
 
-				block_rect := calc_block_rect(x, y)
+				// push ball down
+				if previous_ball_pos.y > paddle_rect.y + paddle_rect.height {
+					collision_normal += {0, 1}
+					ball_pos.y = paddle_rect.y + paddle_rect.height + BALL_RADIUS
+				}
 
-				if rl.CheckCollisionCircleRec(ball_pos, BALL_RADIUS, block_rect) {
-					collision_normal: rl.Vector2
+				// push left
+				if previous_ball_pos.x < paddle_rect.x {
+					collision_normal += {-1, 0}
+				}
 
-					if previous_ball_pos.y < block_rect.y {
-						collision_normal += {0, -1}
+				// push right
+				if previous_ball_pos.x > paddle_rect.x + paddle_rect.width {
+					collision_normal += {1, 0}
+				}
+
+				if collision_normal != 0 {
+					ball_dir = reflect(ball_dir, collision_normal)
+				}
+				rl.PlaySound(hit_paddle_sound)
+			}
+
+			block_x_loop: for x in 0 ..< NUM_BLOCKS_X {
+				for y in 0 ..< NUM_BLOCKS_Y {
+					if blocks[x][y] == false {
+						continue
 					}
 
-					if previous_ball_pos.y > block_rect.y + block_rect.height {
-						collision_normal += {0, 1}
-					}
+					block_rect := calc_block_rect(x, y)
 
-					if previous_ball_pos.x < block_rect.x {
-						collision_normal += {-1, 0}
-					}
+					if rl.CheckCollisionCircleRec(ball_pos, BALL_RADIUS, block_rect) {
+						collision_normal: rl.Vector2
 
-					if previous_ball_pos.x > block_rect.x + block_rect.width {
-						collision_normal += {1, 0}
-					}
+						if previous_ball_pos.y < block_rect.y {
+							collision_normal += {0, -1}
+						}
 
-					if block_exists(x + int(collision_normal.x), y) {
-						collision_normal.x = 0
-					}
+						if previous_ball_pos.y > block_rect.y + block_rect.height {
+							collision_normal += {0, 1}
+						}
 
-					if block_exists(x, y + int(collision_normal.y)) {
-						collision_normal.y = 0
-					}
+						if previous_ball_pos.x < block_rect.x {
+							collision_normal += {-1, 0}
+						}
 
-					if collision_normal != 0 {
-						ball_dir = reflect(ball_dir, collision_normal)
-					}
+						if previous_ball_pos.x > block_rect.x + block_rect.width {
+							collision_normal += {1, 0}
+						}
 
-					blocks[x][y] = false
-					row_color := row_colors[y]
-					score += block_color_score[row_color]
-					rl.SetSoundPitch(hit_block_sound, rand.float32_range(0.8, 1.2))
-					rl.PlaySound(hit_block_sound)
-					break block_x_loop
+						if block_exists(x + int(collision_normal.x), y) {
+							collision_normal.x = 0
+						}
+
+						if block_exists(x, y + int(collision_normal.y)) {
+							collision_normal.y = 0
+						}
+
+						if collision_normal != 0 {
+							ball_dir = reflect(ball_dir, collision_normal)
+						}
+
+						blocks[x][y] = false
+						row_color := row_colors[y]
+						score += block_color_score[row_color]
+						rl.SetSoundPitch(hit_block_sound, rand.float32_range(0.8, 1.2))
+						rl.PlaySound(hit_block_sound)
+						break block_x_loop
+					}
 				}
 			}
+			accumulated_time -= DT
 		}
+
+		blend := accumulated_time / DT
+		ball_render_pos := math.lerp(previous_ball_pos, ball_pos, blend) // linear interpolation
+		paddle_render_pos_x := math.lerp(previous_paddle_pos_x, paddle_pos_x, blend)
+
 
 		rl.BeginDrawing()
 		rl.ClearBackground({150, 190, 220, 255})
@@ -257,8 +276,8 @@ main :: proc() {
 
 		rl.BeginMode2D(camera)
 
-		rl.DrawTextureV(paddle_texture, {paddle_pos_x, PADDLE_POS_Y}, rl.WHITE)
-		rl.DrawTextureV(ball_texture, ball_pos - {BALL_RADIUS, BALL_RADIUS}, rl.WHITE)
+		rl.DrawTextureV(paddle_texture, {paddle_render_pos_x, PADDLE_POS_Y}, rl.WHITE)
+		rl.DrawTextureV(ball_texture, ball_render_pos - {BALL_RADIUS, BALL_RADIUS}, rl.WHITE)
 
 
 		for x in 0 ..< NUM_BLOCKS_X {
