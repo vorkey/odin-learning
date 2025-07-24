@@ -20,38 +20,39 @@ NUM_BLOCKS_X :: 10
 NUM_BLOCKS_Y :: 8
 BLOCK_WIDTH :: 28
 BLOCK_HEIGHT :: 10
+GRAY :: rl.Color{142, 129, 112, 255}
 
 Block_Color :: enum {
-	Yellow,
 	Green,
-	Orange,
+	Purple,
 	Red,
+	Yellow,
 }
 
 row_colors := [NUM_BLOCKS_Y]Block_Color {
-	.Red,
-	.Orange,
-	.Yellow,
 	.Green,
+	.Yellow,
+	.Purple,
 	.Red,
-	.Orange,
+	.Red,
+	.Purple,
 	.Yellow,
 	.Green,
 }
 
 // enum_array
 block_color_values := [Block_Color]rl.Color {
-	.Yellow = rl.YELLOW,
-	.Green  = rl.GREEN,
-	.Red    = rl.RED,
-	.Orange = rl.ORANGE,
+	.Green  = {128, 128, 37, 255},
+	.Purple = {150, 83, 114, 255},
+	.Red    = {203, 35, 31, 255},
+	.Yellow = {183, 129, 42, 255},
 }
 
 block_color_score := [Block_Color]int {
-	.Yellow = 2,
-	.Red    = 4,
-	.Orange = 6,
-	.Green  = 8,
+	.Green  = 2,
+	.Purple = 6,
+	.Red    = 8,
+	.Yellow = 4,
 }
 
 paddle_pos_x: f32
@@ -64,10 +65,12 @@ score: int
 accumulated_time: f32
 previous_ball_pos: rl.Vector2
 previous_paddle_pos_x: f32
+clear: bool
 
 restart :: proc() {
 	started = false
 	game_over = false
+	clear = false
 	score = 0
 	paddle_pos_x = (SCREEN_SIZE - PADDLE_WIDTH) / 2
 	previous_paddle_pos_x = paddle_pos_x
@@ -91,6 +94,11 @@ calc_block_rect :: proc(x, y: int) -> rl.Rectangle {
 block_exists :: proc(x, y: int) -> bool {
 	if x < 0 || y < 0 || x >= NUM_BLOCKS_X || y >= NUM_BLOCKS_Y do return false
 	return blocks[x][y]
+}
+
+draw_text_center :: proc(text: cstring) {
+	text_width := rl.MeasureText(text, 15)
+	rl.DrawText(text, (SCREEN_SIZE - text_width) / 2, BALL_START_Y - 30, 15, GRAY)
 }
 
 main :: proc() {
@@ -130,7 +138,7 @@ main :: proc() {
 				ball_dir = linalg.normalize0(ball_to_paddle) // move ball towards paddle
 				started = true
 			}
-		} else if game_over {
+		} else if game_over || clear {
 			if rl.IsKeyPressed(.SPACE) {
 				restart()
 			}
@@ -163,7 +171,7 @@ main :: proc() {
 			}
 
 			// fall through bottom
-			if !game_over && ball_pos.y > SCREEN_SIZE + BALL_RADIUS * 6 {
+			if !game_over && !clear && ball_pos.y > SCREEN_SIZE + BALL_RADIUS * 6 {
 				game_over = true
 				rl.PlaySound(game_over_sound)
 			}
@@ -211,10 +219,13 @@ main :: proc() {
 				rl.PlaySound(hit_paddle_sound)
 			}
 
+			found: bool
 			block_x_loop: for x in 0 ..< NUM_BLOCKS_X {
 				for y in 0 ..< NUM_BLOCKS_Y {
 					if blocks[x][y] == false {
 						continue
+					} else {
+						found = true
 					}
 
 					block_rect := calc_block_rect(x, y)
@@ -259,6 +270,7 @@ main :: proc() {
 					}
 				}
 			}
+			if !found do clear = true
 			accumulated_time -= DT
 		}
 
@@ -268,7 +280,7 @@ main :: proc() {
 
 
 		rl.BeginDrawing()
-		rl.ClearBackground({150, 190, 220, 255})
+		rl.ClearBackground({1, 7, 16, 255})
 
 		camera := rl.Camera2D {
 			zoom = f32(rl.GetScreenHeight() / SCREEN_SIZE),
@@ -309,30 +321,21 @@ main :: proc() {
 		}
 
 		score_text := fmt.ctprint(score)
-		rl.DrawText(score_text, 5, 5, 10, rl.BLACK)
+		rl.DrawText(score_text, 5, 5, 10, GRAY)
 
 		if !started {
 			start_text := fmt.ctprint("Start: SPACE")
-			start_text_width := rl.MeasureText(start_text, 15)
-			rl.DrawText(
-				start_text,
-				(SCREEN_SIZE - start_text_width) / 2,
-				BALL_START_Y - 30,
-				15,
-				rl.BLACK,
-			)
+			draw_text_center(start_text)
+		}
+
+		if clear {
+			clear_text := fmt.ctprintf("ALL CLEAR! Reset: SPACE")
+			draw_text_center(clear_text)
 		}
 
 		if game_over {
-			game_over_text := fmt.ctprintf("Score: %v. Reset: SPACE", score)
-			game_over_text_width := rl.MeasureText(game_over_text, 15)
-			rl.DrawText(
-				game_over_text,
-				(SCREEN_SIZE - game_over_text_width) / 2,
-				BALL_START_Y - 30,
-				15,
-				rl.BLACK,
-			)
+			game_over_text := fmt.ctprintf("Score: %v | Reset: SPACE", score)
+			draw_text_center(game_over_text)
 		}
 
 		rl.EndMode2D()
